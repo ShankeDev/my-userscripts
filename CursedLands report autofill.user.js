@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CursedLands - issue autofill
 // @namespace    local.cursedlands.autofill
-// @version      1.4
+// @version      1.5
 // @description  Auto-fills the new-issue title (and optional body) on TheWWWorm/CursedLands with a preset (version taken from the latest release, platform chosen by flag)
 // @match        https://github.com/TheWWWorm/CursedLands/*
 // @grant        GM_xmlhttpRequest
@@ -15,7 +15,7 @@
     'use strict';
 
     // ===== PLATFORM FLAG: 'android' | 'linux' | 'macos' | 'web' | 'windows' =====
-    const PLATFORM = 'windows';
+    const PLATFORM = 'linux';
     // ============================================================================
 
     // ===== BODY FLAG: your own text, line breaks and empty lines are kept exactly as written.
@@ -27,9 +27,12 @@
     const API = 'https://api.github.com/repos/TheWWWorm/CursedLands/releases?per_page=1';
     const CACHE_TTL = 10 * 60 * 1000; // 10 min, avoids API rate limit
 
-    // Title: platform name + game version only, e.g. "CursedLands-1.19.0-linux"
-    const TITLE_TPL = (v) => `BUG:  - Проклятые земли - CursedLands-${v}-${PLATFORM}`;
-    const TITLE_CURSOR = 5; // between the two spaces after "BUG:"
+    // Title = "BUG: " + [cursor here] + " - Проклятые земли - CursedLands-<version>-<platform>"
+    // The cursor goes between the two spaces: one ends TITLE_PREFIX, the other starts TITLE_REST.
+    const TITLE_PREFIX = 'BUG: ';
+    const TITLE_REST = ' - Проклятые земли - CursedLands-';
+    const TITLE_TPL = (v) => `${TITLE_PREFIX}${TITLE_REST}${v}-${PLATFORM}`;
+    const TITLE_CURSOR = TITLE_PREFIX.length;
 
     const TITLE_SEL = [
         'input#issue_title',
@@ -79,6 +82,20 @@
         el.dispatchEvent(new Event('change', { bubbles: true }));
     }
 
+    // The page (React) may re-render and reset the caret after we set the value,
+    // so re-apply the cursor position a few times with short delays.
+    function placeCursor(getEl, expectedValue) {
+        const apply = () => {
+            const el = getEl();
+            if (!el || el.value !== expectedValue) return; // user already changed it, don't interfere
+            el.focus();
+            el.setSelectionRange(TITLE_CURSOR, TITLE_CURSOR);
+        };
+        apply();
+        requestAnimationFrame(apply);
+        [30, 100, 250, 500].forEach((ms) => setTimeout(apply, ms));
+    }
+
     let busy = false;
 
     async function tryFill() {
@@ -105,11 +122,12 @@
         const t = document.querySelector(TITLE_SEL) || titleEl;
         const b = USE_BODY ? (document.querySelector(BODY_SEL) || bodyEl) : null;
 
-        if (b) setNativeValue(b, BODY);
-        setNativeValue(t, TITLE_TPL(ver));
+        const title = TITLE_TPL(ver);
 
-        t.focus();
-        t.setSelectionRange(TITLE_CURSOR, TITLE_CURSOR);
+        if (b) setNativeValue(b, BODY);
+        setNativeValue(t, title);
+
+        placeCursor(() => document.querySelector(TITLE_SEL), title);
         busy = false;
     }
 
